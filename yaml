@@ -1,0 +1,699 @@
+###############################################################################
+#
+# Grabowsky Audio Endpoint v1.1
+#
+# Hardware
+# ----------
+# ESP32-S3 DevKitC-1
+# PCM5102A Stereo DAC
+# TPA3116D2 Stereo Amplifier
+# SSD1306 128x64 I2C OLED
+#
+# Purpose
+# -------
+# Network audio endpoint for Music Assistant using Sendspin.
+#
+# Display
+# -------
+# Top left  : Current time
+# Top right : WiFi signal strength
+# Main area : Album / Song title
+# Long text : Horizontal scrolling
+#
+###############################################################################
+
+substitutions:
+
+  device_name: patio-speakers
+  friendly_name: Patio Speakers
+
+  sample_rate: "48000"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+
+  min_version: 2026.7.0
+
+  project:
+    name: grabowsky.audio_endpoint
+    version: "1.1.0"
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  flash_size: 8MB
+
+  framework:
+    type: esp-idf
+    version: recommended
+
+    sdkconfig_options:
+
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+
+      CONFIG_SPIRAM_RODATA: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+
+      CONFIG_BT_ALLOCATION_FROM_SPIRAM_FIRST: "y"
+      CONFIG_BT_BLE_DYNAMIC_ENV_MEMORY: "y"
+
+      CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC: "y"
+      CONFIG_MBEDTLS_SSL_PROTO_TLS1_3: "y"
+
+psram:
+  mode: octal
+  speed: 80MHz
+  ignore_not_found: false
+
+###############################################################################
+# Logging
+###############################################################################
+
+logger:
+  level: INFO
+
+  logs:
+    wifi: WARN
+    api: WARN
+    mdns: WARN
+    i2s_audio: WARN
+    speaker: WARN
+    sendspin: INFO
+
+###############################################################################
+# Home Assistant API
+###############################################################################
+
+api:
+  reboot_timeout: 0s
+
+  encryption:
+    key: "Luy0+78uM3B1hf/9mbWu4F48uCH/BzoyfhPk1OUnqAM="
+
+###############################################################################
+# OTA
+###############################################################################
+
+ota:
+  - platform: esphome
+
+###############################################################################
+# WiFi
+###############################################################################
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  ap:
+    ssid: "${friendly_name} Fallback"
+    password: "sEjtwV3XJhzP"
+
+captive_portal:
+
+network:
+  enable_ipv6: true
+
+###############################################################################
+# Time
+###############################################################################
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+    timezone: America/New_York
+
+    on_time_sync:
+      then:
+        - logger.log:
+            level: INFO
+            format: "Home Assistant time synchronized"
+
+###############################################################################
+# I2C - OLED
+###############################################################################
+
+i2c:
+  sda: GPIO8
+  scl: GPIO9
+  scan: false
+
+###############################################################################
+# WiFi Signal
+###############################################################################
+
+sensor:
+
+  - platform: wifi_signal
+    id: wifi_signal_db
+    name: "WiFi Signal"
+    update_interval: 10s
+    entity_category: diagnostic
+
+###############################################################################
+# Sendspin
+###############################################################################
+
+sendspin:
+  id: sendspin_hub
+  task_stack_in_psram: false
+
+###############################################################################
+# Sendspin Metadata
+###############################################################################
+
+text_sensor:
+
+  - platform: sendspin
+    id: sendspin_title
+    name: "Track Title"
+    type: title
+
+  - platform: sendspin
+    id: sendspin_album
+    name: "Album"
+    type: album
+
+###############################################################################
+# I2S Audio Bus
+###############################################################################
+
+i2s_audio:
+
+  - id: audio_bus
+    i2s_lrclk_pin: GPIO10
+    i2s_bclk_pin: GPIO13
+
+###############################################################################
+# Audio
+###############################################################################
+
+speaker:
+
+  ###########################################################################
+  # Hardware Speaker
+  ###########################################################################
+
+  - platform: i2s_audio
+    id: hardware_speaker
+    i2s_audio_id: audio_bus
+    i2s_dout_pin: GPIO12
+    dac_type: external
+    channel: stereo
+
+  ###########################################################################
+  # Mixer
+  #
+  # Retained as a two-input mixer because the ESPHome mixer requires
+  # at least two source speakers. Only the media path is used.
+  ###########################################################################
+
+  - platform: mixer
+    id: mixing_speaker
+    output_speaker: hardware_speaker
+    num_channels: 2
+    source_speakers:
+      - id: media_mixing_input
+      - id: unused_mixing_input
+
+  ###########################################################################
+  # Media Resampler
+  ###########################################################################
+
+  - platform: resampler
+    id: media_resampling_speaker
+    output_speaker: media_mixing_input
+    sample_rate: ${sample_rate}
+    bits_per_sample: 16
+
+###############################################################################
+# Sendspin Media Source
+###############################################################################
+
+media_source:
+
+  - platform: sendspin
+    id: sendspin_media_source
+    fixed_delay: 480us
+
+###############################################################################
+# Sendspin Group Player
+###############################################################################
+
+media_player:
+
+  - platform: sendspin
+    id: sendspin_group
+
+###############################################################################
+# Speaker Source
+###############################################################################
+
+  - platform: speaker_source
+    id: patio_player
+
+    media_pipeline:
+      format: FLAC
+      num_channels: 2
+      sample_rate: ${sample_rate}
+      speaker: media_resampling_speaker
+
+      sources:
+        - sendspin_media_source
+
+    volume_increment: 0.05
+    volume_min: 0.00
+    volume_max: 1.00
+
+###############################################################################
+# Display Fonts
+###############################################################################
+
+font:
+
+  - file: "gfonts://Roboto"
+    id: font_time
+    size: 12
+
+  - file: "gfonts://Roboto"
+    id: font_title
+    size: 17
+
+  - file: "gfonts://Roboto"
+    id: font_album
+    size: 14
+
+###############################################################################
+# Display Scrolling State
+###############################################################################
+
+globals:
+
+  - id: title_scroll_position
+    type: int
+    restore_value: no
+    initial_value: "0"
+
+  - id: album_scroll_position
+    type: int
+    restore_value: no
+    initial_value: "0"
+
+###############################################################################
+# OLED Display
+###############################################################################
+
+display:
+
+  - platform: ssd1306_i2c
+    id: oled_display
+
+    model: "SSD1306 128x64"
+    address: 0x3C
+
+    update_interval: 100ms
+
+    lambda: |-
+
+      /*
+       * ================================================================
+       * CLEAR
+       * ================================================================
+       */
+
+      it.clear();
+
+
+      /*
+       * ================================================================
+       * TIME
+       * ================================================================
+       */
+      
+      if (id(homeassistant_time).now().is_valid()) {
+      
+        it.strftime(
+          0,
+          0,
+          id(font_time),
+          TextAlign::TOP_LEFT,
+          "%H:%M",
+          id(homeassistant_time).now()
+        );
+      
+      } else {
+      
+        it.print(
+          0,
+          0,
+          id(font_time),
+          TextAlign::TOP_LEFT,
+          "NO TIME"
+        );
+      }
+
+
+      /*
+       * ================================================================
+       * WIFI SIGNAL
+       *
+       * Uses the ESPHome wifi_signal sensor as the source.
+       * Four graphical bars are displayed according to RSSI.
+       * ================================================================
+       */
+
+      float rssi = id(wifi_signal_db).state;
+
+      int bars = 0;
+
+      if (!isnan(rssi)) {
+
+        if (rssi >= -55) {
+          bars = 4;
+        } else if (rssi >= -65) {
+          bars = 3;
+        } else if (rssi >= -75) {
+          bars = 2;
+        } else if (rssi >= -85) {
+          bars = 1;
+        }
+      }
+
+
+      /*
+       * Four ascending bars.
+       *
+       * Display area:
+       * X = 108..127
+       * Y = 1..12
+       */
+
+      const int bar_width = 4;
+      const int bar_gap = 1;
+      const int bar_base_y = 12;
+
+      for (int i = 0; i < 4; i++) {
+
+        int height = 3 + (i * 3);
+
+        int x = 107 + (i * (bar_width + bar_gap));
+        int y = bar_base_y - height;
+
+        if (i < bars) {
+
+          it.filled_rectangle(
+            x,
+            y,
+            bar_width,
+            height
+          );
+
+        } else {
+
+          it.rectangle(
+            x,
+            y,
+            bar_width,
+            height
+          );
+        }
+      }
+
+
+      /*
+       * ================================================================
+       * HEADER SEPARATOR
+       * ================================================================
+       */
+
+      it.line(
+        0,
+        15,
+        127,
+        15
+      );
+
+
+      /*
+       * ================================================================
+       * SONG TITLE
+       * ================================================================
+       */
+
+      std::string title = id(sendspin_title).state;
+
+      if (title.empty()) {
+        title = "Not Playing";
+      }
+
+      int title_x;
+      int title_y;
+      int title_width;
+      int title_height;
+
+      it.get_text_bounds(
+        0,
+        0,
+        title.c_str(),
+        id(font_title),
+        TextAlign::TOP_LEFT,
+        &title_x,
+        &title_y,
+        &title_width,
+        &title_height
+      );
+
+
+      if (title_width <= 128) {
+
+        it.print(
+          64,
+          18,
+          id(font_title),
+          TextAlign::TOP_CENTER,
+          title.c_str()
+        );
+
+      } else {
+
+        /*
+         * Clip title to its display area.
+         */
+
+        it.start_clipping(
+          0,
+          17,
+          128,
+          38
+        );
+
+        int x =
+          128 - id(title_scroll_position);
+
+        it.print(
+          x,
+          18,
+          id(font_title),
+          TextAlign::TOP_LEFT,
+          title.c_str()
+        );
+
+        /*
+         * Repeat title after a short gap.
+         */
+
+        it.print(
+          x + title_width + 30,
+          18,
+          id(font_title),
+          TextAlign::TOP_LEFT,
+          title.c_str()
+        );
+
+        it.end_clipping();
+      }
+
+
+      /*
+       * ================================================================
+       * ALBUM
+       * ================================================================
+       */
+
+      std::string album = id(sendspin_album).state;
+
+      if (album.empty()) {
+        album = "";
+      }
+
+      int album_x;
+      int album_y;
+      int album_width;
+      int album_height;
+
+      it.get_text_bounds(
+        0,
+        0,
+        album.c_str(),
+        id(font_album),
+        TextAlign::TOP_LEFT,
+        &album_x,
+        &album_y,
+        &album_width,
+        &album_height
+      );
+
+
+      if (album_width <= 128) {
+
+        it.print(
+          64,
+          43,
+          id(font_album),
+          TextAlign::TOP_CENTER,
+          album.c_str()
+        );
+
+      } else {
+
+        /*
+         * Clip album to bottom display area.
+         */
+
+        it.start_clipping(
+          0,
+          41,
+          128,
+          64
+        );
+
+        int x =
+          128 - id(album_scroll_position);
+
+        it.print(
+          x,
+          43,
+          id(font_album),
+          TextAlign::TOP_LEFT,
+          album.c_str()
+        );
+
+        /*
+         * Repeat album after a short gap.
+         */
+
+        it.print(
+          x + album_width + 30,
+          43,
+          id(font_album),
+          TextAlign::TOP_LEFT,
+          album.c_str()
+        );
+
+        it.end_clipping();
+      }
+
+
+###############################################################################
+# Display Scroll Timer
+###############################################################################
+
+interval:
+
+  - interval: 100ms
+    then:
+
+      - lambda: |-
+
+          /*
+           * ============================================================
+           * TITLE SCROLL
+           * ============================================================
+           */
+
+          std::string title = id(sendspin_title).state;
+
+          int title_width = 0;
+
+          if (!title.empty()) {
+
+            int x;
+            int y;
+            int h;
+
+            id(oled_display).get_text_bounds(
+              0,
+              0,
+              title.c_str(),
+              id(font_title),
+              TextAlign::TOP_LEFT,
+              &x,
+              &y,
+              &title_width,
+              &h
+            );
+          }
+
+          if (title_width > 128) {
+
+            id(title_scroll_position) += 10;
+
+            if (
+              id(title_scroll_position) >
+              title_width + 30
+            ) {
+              id(title_scroll_position) = 0;
+            }
+
+          } else {
+
+            id(title_scroll_position) = 0;
+          }
+
+
+          /*
+           * ============================================================
+           * ALBUM SCROLL
+           * ============================================================
+           */
+
+          std::string album = id(sendspin_album).state;
+
+          int album_width = 0;
+
+          if (!album.empty()) {
+
+            int x;
+            int y;
+            int h;
+
+            id(oled_display).get_text_bounds(
+              0,
+              0,
+              album.c_str(),
+              id(font_album),
+              TextAlign::TOP_LEFT,
+              &x,
+              &y,
+              &album_width,
+              &h
+            );
+          }
+
+          if (album_width > 128) {
+
+            id(album_scroll_position) += 10;
+
+            if (
+              id(album_scroll_position) >
+              album_width + 30
+            ) {
+              id(album_scroll_position) = 0;
+            }
+
+          } else {
+
+            id(album_scroll_position) = 0;
+          }
