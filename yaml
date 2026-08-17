@@ -90,7 +90,7 @@ api:
   reboot_timeout: 0s
 
   encryption:
-    key: "Luy0+78uM3B1hf/9mbWu4F48uCH/BzoyfhPk1OUnqAM="
+    key: "enteryourown"
 
 ###############################################################################
 # OTA
@@ -109,7 +109,7 @@ wifi:
 
   ap:
     ssid: "${friendly_name} Fallback"
-    password: "sEjtwV3XJhzP"
+    password: "enteryourown"
 
 captive_portal:
 
