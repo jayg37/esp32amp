@@ -317,6 +317,23 @@ The amplifier is intended to become another Music Assistant playback endpoint. T
 
 Supported sources can include services such as Spotify, Tidal, Qobuz, Apple Music, local files, network files, and other Music Assistant providers.
 
+### In-App Casting and AirPlay
+
+The Music Assistant setup also uses the **Ariacast** and **AirPlay** plugins to provide convenient casting and AirPlay control from within the associated apps.
+
+These plugins are intentionally added **multiple times**, with each instance assigned to a specific speaker or speaker group. This creates separate selectable casting/AirPlay targets rather than presenting the entire amplifier system as one undifferentiated destination.
+
+For example, separate plugin instances can be assigned to:
+
+* A single outdoor speaker/player
+* A specific indoor speaker/player
+* A defined group of speakers
+* Other desired combinations of players
+
+This allows a user to open a compatible casting or AirPlay interface and select the specific speaker or speaker group they want to play to. Multiple plugin instances are therefore required when individual speakers or groups need to appear as independent selectable destinations.
+
+The result is a more user-friendly experience for people who may not be familiar with the underlying Music Assistant/Home Assistant configuration: the desired room or speaker group can be selected directly from the casting or AirPlay destination list.
+
 ---
 
 # Network Synchronization
